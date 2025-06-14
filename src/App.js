@@ -127,10 +127,12 @@ const generatePuzzle = (words) => {
         grid = placeWord(word, startRow, startCol, direction.dr, direction.dc, grid);
         placedCount++;
         // Store precise locations of each letter for validation
-        hiddenWordLocations[word] = [];
+        // FIX: Ensure hiddenWordLocations[word] is initialized as an array before pushing
+        hiddenWordLocations[word] = []; 
         for (let i = 0; i < word.length; i++) {
           hiddenWordLocations[word].push({ r: startRow + i * direction.dr, c: startCol + i * direction.dc });
         }
+        
         placed = true;
       }
     }
@@ -156,7 +158,7 @@ const generatePuzzle = (words) => {
 
 export default function App() {
   const [selectedLanguage, setSelectedLanguage] = useState('Hausa');
-  const [foundWords, setFoundWords] = useState(new Set()); // FIX: Constructor Set requires 'new'
+  const [foundWords, setFoundWords] = useState(new Set()); 
   const [grid, setGrid] = useState([]);
   const [wordsToFind, setWordsToFind] = useState([]);
   const [selectedCells, setSelectedCells] = useState([]);
@@ -610,7 +612,7 @@ export default function App() {
       {/* Instructions Modal */}
       {showInstructions && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-purple-800 border-4 border-yellow-400 rounded-xl shadow-2xl p-8 max-w-lg w-full text-center relative">
+          <div className="bg-purple-800 border-4 border-yellow-400 rounded-xl shadow-2xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto text-center relative"> {/* MODIFIED: p-6, max-h-[90vh], overflow-y-auto */}
             <button
               onClick={() => setShowInstructions(false)}
               className="absolute top-4 right-4 text-white text-3xl font-bold hover:text-yellow-300 transition-colors"
@@ -618,7 +620,7 @@ export default function App() {
               &times;
             </button>
             <h2 className="text-4xl font-bold mb-6 text-yellow-300">How to Play</h2>
-            <div className="text-left text-lg text-gray-200 space-y-4">
+            <div className="text-left text-base text-gray-200 space-y-4"> {/* MODIFIED: text-base for instructions content */}
               <p>Welcome to the {selectedLanguage} Word Search game! Your goal is to find all the hidden words in the grid.</p>
               <ol className="list-decimal list-inside space-y-2">
                 <li>**Select Language:** Choose your preferred language from the dropdown.</li>
