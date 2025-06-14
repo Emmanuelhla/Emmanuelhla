@@ -156,11 +156,12 @@ const generatePuzzle = (words) => {
 
 export default function App() {
   const [selectedLanguage, setSelectedLanguage] = useState('Hausa');
+  // FIX: Constructor Set requires 'new'
+  const [foundWords, setFoundWords] = useState(new Set()); 
   const [grid, setGrid] = useState([]);
   const [wordsToFind, setWordsToFind] = useState([]);
-  const [foundWords, setFoundWords] = useState(new Set());
   const [selectedCells, setSelectedCells] = useState([]);
-  const [isMouseDown, setIsMouseDown] = useState(false);
+  const [isMouseDown, setIsMouseDown] = useState(false); // Used for both mouse and touch
   const [hiddenWordLocations, setHiddenWordLocations] = useState({});
   const [currentMessage, setCurrentMessage] = useState('');
   const [hintsAvailable, setHintsAvailable] = useState(3); // Number of hints
@@ -173,6 +174,9 @@ export default function App() {
     wordsToFind: [],
     foundWords: new Set()
   });
+
+  // Ref to the grid element to calculate cell positions for touch events
+  const gridRef = useRef(null);
 
   useEffect(() => {
     // Update ref whenever state changes
@@ -199,98 +203,86 @@ export default function App() {
     setCurrentMessage(`Find all the hidden ${selectedLanguage} words!`);
   }, [selectedLanguage]); // Regenerate puzzle when language changes
 
-  // --- User Interaction Logic ---
+  // --- User Interaction Logic (Unified for Mouse & Touch) ---
 
   /**
-   * Handles mouse down event on a cell, starting selection.
+   * Starts selection on a cell.
    * @param {number} r - Row index.
    * @param {number} c - Column index.
    */
-  const handleMouseDown = (r, c) => {
-    // Only allow selection if not flashing a hint
+  const startSelection = (r, c) => {
     if (flashingCells.length > 0) return; 
     setIsMouseDown(true);
     setSelectedCells([{ r, c }]);
   };
 
   /**
-   * Handles mouse enter/move event on a cell while selection is active.
-   * This is used by both mouse and touch events.
+   * Adds a cell to the current selection.
    * @param {number} r - Row index.
    * @param {number} c - Column index.
    */
-  const handleCellSelect = (r, c) => {
+  const addCellToSelection = (r, c) => {
     if (!isMouseDown) return;
 
     const newCell = { r, c };
     const isCellAlreadySelected = selectedCells.some(
       cell => cell.r === newCell.r && cell.c === newCell.c
     );
-
-    // Only add if it's a new cell. This prevents adding the same cell multiple times.
     if (!isCellAlreadySelected) {
-        setSelectedCells(prev => [...prev, newCell]);
+      setSelectedCells(prev => [...prev, newCell]);
     }
   };
 
   /**
-   * Handles mouse up event, triggering word validation.
-   * This is used by both mouse and touch events.
+   * Ends selection and triggers word validation.
    */
-  const handleSelectionEnd = () => {
+  const endSelection = () => {
     setIsMouseDown(false);
-    if (selectedCells.length > 1) { // A word must be at least 2 characters long to be considered
+    if (selectedCells.length > 1) {
       validateSelection();
     }
-    setSelectedCells([]); // Clear selection after validation
+    setSelectedCells([]);
   };
 
+  // --- Mouse Handlers ---
+  const handleMouseDown = (r, c) => startSelection(r, c);
+  const handleMouseEnter = (r, c) => addCellToSelection(r, c);
+  const handleMouseUp = () => endSelection();
+  const handleMouseLeaveGrid = () => isMouseDown && endSelection(); // End selection if mouse leaves grid area
 
-  /**
-   * Handles touch start event on a cell, starting selection.
-   * @param {Object} e - Touch event.
-   * @param {number} r - Row index of the touched cell.
-   * @param {number} c - Column index of the touched cell.
-   */
+  // --- Touch Handlers ---
   const handleTouchStart = (e, r, c) => {
-    e.preventDefault(); // Prevent scrolling/zooming
-    if (flashingCells.length > 0) return;
-    setIsMouseDown(true); // Reusing isMouseDown state for touch
-    setSelectedCells([{ r, c }]);
+    e.preventDefault(); // Prevent default browser scrolling/zooming
+    startSelection(r, c);
   };
 
-  /**
-   * Handles touch move event on the grid container.
-   * Determines which cell is being touched and adds it to selection.
-   * @param {Object} e - Touch event.
-   */
   const handleTouchMove = (e) => {
     if (!isMouseDown) return;
-    e.preventDefault(); // Prevent scrolling while dragging
+    e.preventDefault(); // Prevent default browser scrolling while dragging
 
     const touch = e.touches[0];
-    // Get the element directly under the touch point
-    const touchedElement = document.elementFromPoint(touch.clientX, touch.clientY);
+    // Use the gridRef to calculate the position relative to the grid
+    if (gridRef.current) {
+        const gridRect = gridRef.current.getBoundingClientRect();
+        const cellSize = gridRect.width / GRID_SIZE; // Assuming square cells
 
-    if (touchedElement && touchedElement.dataset.row && touchedElement.dataset.col) {
-      const r = parseInt(touchedElement.dataset.row);
-      const c = parseInt(touchedElement.dataset.col);
+        // Calculate row/col based on touch position relative to grid
+        const col = Math.floor((touch.clientX - gridRect.left) / cellSize);
+        const row = Math.floor((touch.clientY - gridRect.top) / cellSize);
 
-      // Only call handleCellSelect if the touch is on a new cell
-      const lastCell = selectedCells[selectedCells.length - 1];
-      if (!lastCell || r !== lastCell.r || c !== lastCell.c) { // Check if new cell or first cell
-        handleCellSelect(r, c);
-      }
+        // Ensure calculated row/col are within grid bounds
+        if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
+            const lastCell = selectedCells[selectedCells.length - 1];
+            if (!lastCell || row !== lastCell.r || col !== lastCell.c) {
+                addCellToSelection(row, col);
+            }
+        }
     }
   };
 
-  /**
-   * Handles touch end event on the grid container.
-   * @param {Object} e - Touch event.
-   */
   const handleTouchEnd = (e) => {
     e.preventDefault(); // Prevent default touch behavior
-    handleSelectionEnd(); // Reuse existing selection end logic
+    endSelection();
   };
 
   /**
@@ -300,55 +292,59 @@ export default function App() {
     const { grid, hiddenWordLocations, wordsToFind, foundWords } = gameStateRef.current;
     if (selectedCells.length === 0) return;
 
-    // To ensure correct word reconstruction for validation regardless of drag direction,
-    // we need to sort the selected cells based on their spatial relationship from start to end.
     const startCell = selectedCells[0];
     const endCell = selectedCells[selectedCells.length - 1];
+    const len = selectedCells.length;
 
-    // Determine the direction of the drag
-    const dr = endCell.r - startCell.r;
-    const dc = endCell.c - startCell.c;
-
-    let pathCells = [];
-    if (selectedCells.length === 1) { // A single cell cannot form a word
-      pathCells = [...selectedCells]; // Still process to show error if needed
-    } else if (dr === 0) { // Horizontal
-        const stepC = dc / Math.abs(dc || 1); // +1 or -1
-        for (let c = startCell.c; (stepC > 0 ? c <= endCell.c : c >= endCell.c); c += stepC) {
-            pathCells.push({ r: startCell.r, c: c });
-        }
-    } else if (dc === 0) { // Vertical
-        const stepR = dr / Math.abs(dr || 1); // +1 or -1
-        for (let r = startCell.r; (stepR > 0 ? r <= endCell.r : r >= endCell.r); r += stepR) {
-            pathCells.push({ r: r, c: startCell.c });
-        }
-    } else if (Math.abs(dr) === Math.abs(dc)) { // Diagonal (45 degrees)
-        const stepR = dr / Math.abs(dr); // +1 or -1
-        const stepC = dc / Math.abs(dc); // +1 or -1
-        for (let i = 0; i <= Math.abs(dr); i++) {
-            pathCells.push({ r: startCell.r + i * stepR, c: startCell.c + i * stepC });
-        }
-    } else {
-        // Not a straight line (horizontal, vertical, or 45-degree diagonal)
-        setCurrentMessage("Selection must be in a straight line!");
-        return;
-    }
-
-    // Now, verify that all cells in the selectedCells array are precisely on this derived path
-    // and that no extra cells were picked up by imprecise dragging.
-    const pathSet = new Set(pathCells.map(cell => `${cell.r},${cell.c}`));
-    const selectedSet = new Set(selectedCells.map(cell => `${cell.r},${cell.c}`));
-
-    if (pathSet.size !== selectedSet.size || ![...selectedSet].every(cellStr => pathSet.has(cellStr))) {
-        setCurrentMessage("Selection must be a precise straight line!");
-        return;
-    }
-    
+    let pathCells = []; // This will hold the "ideal" straight path
     let selectedWord = '';
-    for (const cell of pathCells) { // Use pathCells for correct word order
-      selectedWord += grid[cell.r][cell.c];
+
+    // Determine the ideal path and reconstruct the word from it
+    if (len === 1) { // A single cell cannot form a word
+      setCurrentMessage("Please select at least two letters to form a word!");
+      return;
+    } else {
+        const dr_total = endCell.r - startCell.r;
+        const dc_total = endCell.c - startCell.c;
+
+        let isStraight = false;
+
+        // Horizontal, Vertical, or 45-degree Diagonal
+        if (dr_total === 0 || dc_total === 0 || Math.abs(dr_total) === Math.abs(dc_total)) {
+            // Calculate step size (e.g., 1 or -1)
+            const stepR = dr_total === 0 ? 0 : dr_total / Math.abs(dr_total);
+            const stepC = dc_total === 0 ? 0 : dc_total / Math.abs(dc_total);
+            
+            // Reconstruct the ideal straight path
+            for (let i = 0; i < len; i++) {
+                const r = startCell.r + i * stepR;
+                const c = startCell.c + i * stepC;
+                pathCells.push({ r, c });
+            }
+            isStraight = true;
+        }
+
+        if (!isStraight) {
+            setCurrentMessage("Selection must be in a straight line (horizontal, vertical, or 45-degree diagonal)!");
+            return;
+        }
+
+        // Now, verify that all cells in the actual `selectedCells` array are precisely on this `pathCells`
+        const pathSet = new Set(pathCells.map(cell => `${cell.r},${cell.c}`));
+        const actualSelectedSet = new Set(selectedCells.map(cell => `${cell.r},${cell.c}`));
+
+        if (pathSet.size !== actualSelectedSet.size || ![...actualSelectedSet].every(cellStr => pathSet.has(cellStr))) {
+            setCurrentMessage("Your selection strayed from a precise straight line. Try again!");
+            return;
+        }
+
+        // If it's a valid straight line, reconstruct the word from pathCells (correct order)
+        for (const cell of pathCells) {
+            selectedWord += grid[cell.r][cell.c];
+        }
+        selectedWord = selectedWord.toLowerCase();
     }
-    selectedWord = selectedWord.toLowerCase();
+
 
     let foundMatch = false;
 
@@ -358,25 +354,22 @@ export default function App() {
       if (!hiddenLocs) continue;
 
       let actualHiddenWord = '';
-      // Ensure actualHiddenWord is constructed in a predictable order (e.g., top-left to bottom-right or vice versa)
-      // For consistency, sort hidden locations by row, then by column, similar to how pathCells are generated.
-      const sortedHiddenLocs = [...hiddenLocs].sort((a, b) => {
-        if (a.r === b.r) return a.c - b.c;
-        return a.r - b.r;
-      });
-      for (const loc of sortedHiddenLocs) {
+      // It's crucial that `actualHiddenWord` is reconstructed in a consistent order
+      // to match how `selectedWord` is constructed (from start to end of drag).
+      // The `hiddenLocs` already store the word's cells in placement order.
+      for (const loc of hiddenLocs) {
         actualHiddenWord += grid[loc.r][loc.c];
       }
       actualHiddenWord = actualHiddenWord.toLowerCase();
       
       const hiddenSet = new Set(hiddenLocs.map(c => `${c.r},${c.c}`));
+      const selectedSet = new Set(selectedCells.map(c => `${c.r},${c.c}`)); // Use original selected cells for this check
 
-      // Check if selected cells exactly match the hidden word's cells AND forms the word
-      // This is the most robust check, comparing the *set of cells* and the *word itself*.
-      const isExactMatch = selectedSet.size === hiddenSet.size && 
-                           [...selectedSet].every(cellStr => hiddenSet.has(cellStr));
+      const isExactMatchByCells = selectedSet.size === hiddenSet.size && 
+                                  [...selectedSet].every(cellStr => hiddenSet.has(cellStr));
 
-      if (isExactMatch && (selectedWord === actualHiddenWord || selectedWord === actualHiddenWord.split('').reverse().join('')) && !foundWords.has(word)) {
+      // Check both forward and reverse of the selected word
+      if (isExactMatchByCells && (selectedWord === actualHiddenWord || selectedWord === actualHiddenWord.split('').reverse().join('')) && !foundWords.has(word)) {
         setFoundWords(prev => new Set(prev).add(word));
         setCurrentMessage(`'${word.toUpperCase()}' found! Great job!`);
         foundMatch = true;
@@ -467,15 +460,33 @@ export default function App() {
     }
   };
 
+  // --- AdSense Ad Unit Rendering (Important: Placeholder IDs) ---
+  useEffect(() => {
+    // Check if AdSense script is loaded and if adsbygoogle array exists
+    if (window.adsbygoogle && typeof window.adsbygoogle.push === 'function') {
+      try {
+        // Push the ad unit to load
+        (window.adsbygoogle = window.adsbygoogle || []).push({});
+      } catch (e) {
+        console.error("AdSense push error:", e);
+      }
+    } else {
+      console.warn("AdSense script not yet loaded or window.adsbygoogle is not available.");
+      // You might want to retry loading ads after a short delay
+      // or ensure the main AdSense script in index.html is loaded first.
+    }
+  }, [selectedLanguage]); // Reload ad on language change (new game)
 
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 text-white font-inter flex flex-col items-center justify-center p-4"
-      onMouseLeave={() => isMouseDown && handleSelectionEnd()} // End selection if mouse leaves game area
-      onTouchCancel={handleTouchEnd} // Handle touch leaving the screen
+      // Set min-h-screen to ensure it takes full viewport height and prevent vertical scroll unless content truly overflows
+      // Use overflow-hidden on the body (or a parent) if you want to aggressively prevent *all* scrolling.
+      className="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 text-white font-inter flex flex-col items-center justify-center p-4 overflow-hidden"
+      onMouseLeave={handleMouseLeaveGrid} // End selection if mouse leaves game area
+      // Global touch end/cancel handlers to clear selection if touch goes off grid
+      onTouchCancel={handleTouchEnd} 
+      onTouchEnd={handleTouchEnd}
     >
-      {/* Ensure font-family: inter is set in src/index.css or via Tailwind config */}
-
       <h1 className="text-5xl font-bold mb-6 text-yellow-300 drop-shadow-lg text-center">
         {selectedLanguage} Word Search
       </h1>
@@ -502,14 +513,14 @@ export default function App() {
         </button>
       </div>
 
-      <div className="flex flex-col lg:flex-row items-start lg:items-stretch gap-8 w-full max-w-6xl">
+      <div className="flex flex-col lg:flex-row items-start lg:items-stretch gap-8 w-full max-w-6xl overflow-auto p-2"> {/* Added overflow-auto for content within this div */}
         {/* Word Search Grid */}
         <div
+          ref={gridRef} // Assign ref to the grid container
           className="flex-shrink-0 bg-purple-700 border-4 border-yellow-400 rounded-xl shadow-2xl overflow-hidden p-2 flex-grow-0
-                     mx-auto lg:mx-0" /* Center grid on small screens */
-          onMouseUp={handleSelectionEnd}
-          onTouchMove={handleTouchMove} /* Added touch move handler to container */
-          onTouchEnd={handleTouchEnd}   /* Added touch end handler to container */
+                     mx-auto lg:mx-0 word-search-grid-container" /* Center grid on small screens, added touch-action class */
+          onMouseUp={handleMouseUp}
+          onTouchMove={handleTouchMove} /* Added touch move handler to grid container */
         >
           {grid.map((row, rowIndex) => (
             <div key={rowIndex} className="flex">
@@ -529,8 +540,9 @@ export default function App() {
                     rounded-sm
                   `}
                   onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
-                  onMouseEnter={() => handleCellSelect(rowIndex, colIndex)} /* Replaced handleMouseEnter */
+                  onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
                   onTouchStart={(e) => handleTouchStart(e, rowIndex, colIndex)} /* Added touch start */
+                  // onTouchMove and onTouchEnd are handled by the parent grid container
                 >
                   {char.toUpperCase()}
                 </div>
@@ -566,6 +578,16 @@ export default function App() {
         </div>
       </div>
       
+      {/* Google AdSense Display Ad Unit */}
+      {/* IMPORTANT: Replace 'data-ad-slot="XXXXXXXXXX"' with your actual AdSense ad unit slot ID */}
+      <div className="my-8 w-full max-w-lg bg-gray-800 p-4 rounded-lg shadow-md text-center">
+        <p className="text-gray-300 mb-2 text-sm">Advertisement</p>
+        <ins className="adsbygoogle"
+            style={{ display: 'block', width: '100%', height: '300px' }} // Adjust size as needed
+            data-ad-client="ca-pub-XXXXXXXXXXXXXXXX" // Your publisher ID (from index.html)
+            data-ad-slot="XXXXXXXXXX"></ins> {/* Your specific ad unit slot ID */}
+      </div>
+
       {/* Restart Button */}
       <button 
         onClick={() => window.location.reload()} 
@@ -606,7 +628,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Custom CSS for flashing hint (needs to be in index.css for actual build) */}
+      {/* Custom CSS for flashing hint AND preventing touch scrolling (move to index.css for actual build) */}
+      {/* Moved `touch-action: none` class to the grid div */}
       <style>
         {`
           @keyframes pulse-hint {
