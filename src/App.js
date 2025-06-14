@@ -11,7 +11,7 @@ const WORD_LISTS = {
     'abinchi', 'asibiti', 'kwakwa', 'gida', 'ɗaki', 'ƙafa',
     'ɓarawo', 'shago', 'tsalle', 'mutum', 'ingarma', 'kifi',
     'ruwa', 'rana', 'wuta', 'iska', 'ido', 'kunne',
-    'baki', 'hannu', 'zaɓi', 'karfe', 'bura', 'ciki', 'daji',
+    'baki', 'hannu', 'zaɓi', 'karfe', 'gora', 'ciki', 'daji',
     'fari', 'hoto', 'jira', 'kala', 'kusa', 'lemu', 'lura',
     'mota', 'nono', 'rafi', 'sabo', 'taro', 'uku', 'yara', 'zane'
   ],
@@ -36,15 +36,16 @@ const WORD_LISTS = {
 
 
 // Directions for placing words: (row_change, col_change)
+// These cover all 8 standard straight directions in a square grid.
 const DIRECTIONS = [
-  { name: "horizontal", dr: 0, dc: 1 },    // Right
-  { name: "vertical", dr: 1, dc: 0 },      // Down
-  { name: "diagonal_dr", dr: 1, dc: 1 },   // Down-Right
-  { name: "diagonal_ul", dr: -1, dc: -1 }, // Up-Left (Backward diagonal)
-  { name: "horizontal_rev", dr: 0, dc: -1 }, // Left (Backward horizontal)
-  { name: "vertical_rev", dr: -1, dc: 0 },   // Up (Backward vertical)
-  { name: "diagonal_dl", dr: 1, dc: -1 },  // Down-Left
-  { name: "diagonal_ur", dr: -1, dc: 1 }   // Up-Right
+  { name: "horizontal_right", dr: 0, dc: 1 },    // Right
+  { name: "vertical_down", dr: 1, dc: 0 },       // Down
+  { name: "diagonal_down_right", dr: 1, dc: 1 }, // Down-Right
+  { name: "diagonal_up_left", dr: -1, dc: -1 },  // Up-Left (Backward diagonal)
+  { name: "horizontal_left", dr: 0, dc: -1 },    // Left (Backward horizontal)
+  { name: "vertical_up", dr: -1, dc: 0 },        // Up (Backward vertical)
+  { name: "diagonal_down_left", dr: 1, dc: -1 }, // Down-Left
+  { name: "diagonal_up_right", dr: -1, dc: 1 }   // Up-Right
 ];
 
 // --- Helper Functions (Pure JavaScript/Utility Functions) ---
@@ -138,9 +139,7 @@ const generatePuzzle = (words) => {
   console.log(`Successfully placed ${placedCount} out of ${wordsToHide.length} words.`);
 
   // Fill remaining empty spaces with random Hausa alphabet letters
-  // Note: For English, Yoruba, Igbo, this will use the Hausa alphabet if not modified
-  // For a real app, define alphabet sets per language
-  const currentAlphabet = HAUSA_ALPHABET_CHARS; // Use Hausa alphabet for now, or expand this logic
+  const currentAlphabet = HAUSA_ALPHABET_CHARS; 
 
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
@@ -215,32 +214,83 @@ export default function App() {
   };
 
   /**
-   * Handles mouse enter event on a cell while selection is active.
+   * Handles mouse enter/move event on a cell while selection is active.
+   * This is used by both mouse and touch events.
    * @param {number} r - Row index.
    * @param {number} c - Column index.
    */
-  const handleMouseEnter = (r, c) => {
+  const handleCellSelect = (r, c) => {
     if (!isMouseDown) return;
 
-    // Add cell to selection if not already present
     const newCell = { r, c };
     const isCellAlreadySelected = selectedCells.some(
       cell => cell.r === newCell.r && cell.c === newCell.c
     );
+
+    // Only add if it's a new cell. This prevents adding the same cell multiple times.
     if (!isCellAlreadySelected) {
-      setSelectedCells(prev => [...prev, newCell]);
+        setSelectedCells(prev => [...prev, newCell]);
     }
   };
 
   /**
    * Handles mouse up event, triggering word validation.
+   * This is used by both mouse and touch events.
    */
-  const handleMouseUp = () => {
+  const handleSelectionEnd = () => {
     setIsMouseDown(false);
     if (selectedCells.length > 1) { // A word must be at least 2 characters long to be considered
       validateSelection();
     }
     setSelectedCells([]); // Clear selection after validation
+  };
+
+
+  /**
+   * Handles touch start event on a cell, starting selection.
+   * @param {Object} e - Touch event.
+   * @param {number} r - Row index of the touched cell.
+   * @param {number} c - Column index of the touched cell.
+   */
+  const handleTouchStart = (e, r, c) => {
+    e.preventDefault(); // Prevent scrolling/zooming
+    if (flashingCells.length > 0) return;
+    setIsMouseDown(true); // Reusing isMouseDown state for touch
+    setSelectedCells([{ r, c }]);
+  };
+
+  /**
+   * Handles touch move event on the grid container.
+   * Determines which cell is being touched and adds it to selection.
+   * @param {Object} e - Touch event.
+   */
+  const handleTouchMove = (e) => {
+    if (!isMouseDown) return;
+    e.preventDefault(); // Prevent scrolling while dragging
+
+    const touch = e.touches[0];
+    // Get the element directly under the touch point
+    const touchedElement = document.elementFromPoint(touch.clientX, touch.clientY);
+
+    if (touchedElement && touchedElement.dataset.row && touchedElement.dataset.col) {
+      const r = parseInt(touchedElement.dataset.row);
+      const c = parseInt(touchedElement.dataset.col);
+
+      // Only call handleCellSelect if the touch is on a new cell
+      const lastCell = selectedCells[selectedCells.length - 1];
+      if (!lastCell || r !== lastCell.r || c !== lastCell.c) { // Check if new cell or first cell
+        handleCellSelect(r, c);
+      }
+    }
+  };
+
+  /**
+   * Handles touch end event on the grid container.
+   * @param {Object} e - Touch event.
+   */
+  const handleTouchEnd = (e) => {
+    e.preventDefault(); // Prevent default touch behavior
+    handleSelectionEnd(); // Reuse existing selection end logic
   };
 
   /**
@@ -250,74 +300,79 @@ export default function App() {
     const { grid, hiddenWordLocations, wordsToFind, foundWords } = gameStateRef.current;
     if (selectedCells.length === 0) return;
 
-    // 1. Reconstruct the selected word
-    let selectedWord = '';
-    const sortedSelectedCells = [...selectedCells].sort((a, b) => {
-      // Sort cells consistently to reconstruct the word
-      if (a.r === b.r) return a.c - b.c; // Horizontal: sort by column
-      if (a.c === b.c) return a.r - b.r; // Vertical: sort by row
-      
-      // Diagonal: sort by r, then by c
-      // If it's a diagonal, it will either be r increasing with c increasing, or r increasing with c decreasing
-      // or vice-versa. Sorting by r, then c usually works.
-      return a.r - b.r;
-    });
+    // To ensure correct word reconstruction for validation regardless of drag direction,
+    // we need to sort the selected cells based on their spatial relationship from start to end.
+    const startCell = selectedCells[0];
+    const endCell = selectedCells[selectedCells.length - 1];
 
-    // Check if the selection forms a straight line first
-    const startCell = sortedSelectedCells[0];
-    const endCell = sortedSelectedCells[sortedSelectedCells.length - 1];
-    const len = sortedSelectedCells.length;
+    // Determine the direction of the drag
+    const dr = endCell.r - startCell.r;
+    const dc = endCell.c - startCell.c;
 
-    let isStraight = false;
-    if (len === 1) { // Single cell selection is not a word
-        isStraight = false;
-    } else {
-        const dr = (endCell.r - startCell.r);
-        const dc = (endCell.c - startCell.c);
-
-        if (dr === 0 || dc === 0 || Math.abs(dr) === Math.abs(dc)) {
-            // It's a candidate for a straight line (horizontal, vertical, or diagonal slope)
-            isStraight = true;
-            // Verify all intermediate cells are indeed part of this line and in order
-            for (let i = 1; i < len; i++) {
-                const expectedR = startCell.r + (dr / (len - 1)) * i;
-                const expectedC = startCell.c + (dc / (len - 1)) * i;
-                const currentCell = sortedSelectedCells[i];
-                if (currentCell.r !== expectedR || currentCell.c !== expectedC) {
-                    isStraight = false;
-                    break;
-                }
-            }
+    let pathCells = [];
+    if (selectedCells.length === 1) { // A single cell cannot form a word
+      pathCells = [...selectedCells]; // Still process to show error if needed
+    } else if (dr === 0) { // Horizontal
+        const stepC = dc / Math.abs(dc || 1); // +1 or -1
+        for (let c = startCell.c; (stepC > 0 ? c <= endCell.c : c >= endCell.c); c += stepC) {
+            pathCells.push({ r: startCell.r, c: c });
         }
+    } else if (dc === 0) { // Vertical
+        const stepR = dr / Math.abs(dr || 1); // +1 or -1
+        for (let r = startCell.r; (stepR > 0 ? r <= endCell.r : r >= endCell.r); r += stepR) {
+            pathCells.push({ r: r, c: startCell.c });
+        }
+    } else if (Math.abs(dr) === Math.abs(dc)) { // Diagonal (45 degrees)
+        const stepR = dr / Math.abs(dr); // +1 or -1
+        const stepC = dc / Math.abs(dc); // +1 or -1
+        for (let i = 0; i <= Math.abs(dr); i++) {
+            pathCells.push({ r: startCell.r + i * stepR, c: startCell.c + i * stepC });
+        }
+    } else {
+        // Not a straight line (horizontal, vertical, or 45-degree diagonal)
+        setCurrentMessage("Selection must be in a straight line!");
+        return;
     }
 
-    if (!isStraight) {
-      setCurrentMessage("Selection must be in a straight line!");
-      return;
-    }
+    // Now, verify that all cells in the selectedCells array are precisely on this derived path
+    // and that no extra cells were picked up by imprecise dragging.
+    const pathSet = new Set(pathCells.map(cell => `${cell.r},${cell.c}`));
+    const selectedSet = new Set(selectedCells.map(cell => `${cell.r},${cell.c}`));
 
-    // Reconstruct word based on grid letters using the determined order
-    for (const cell of sortedSelectedCells) {
+    if (pathSet.size !== selectedSet.size || ![...selectedSet].every(cellStr => pathSet.has(cellStr))) {
+        setCurrentMessage("Selection must be a precise straight line!");
+        return;
+    }
+    
+    let selectedWord = '';
+    for (const cell of pathCells) { // Use pathCells for correct word order
       selectedWord += grid[cell.r][cell.c];
     }
-    selectedWord = selectedWord.toLowerCase(); // Compare in lowercase
+    selectedWord = selectedWord.toLowerCase();
 
     let foundMatch = false;
 
+    // Check against hidden words
     for (const word of wordsToFind) {
       const hiddenLocs = hiddenWordLocations[word];
       if (!hiddenLocs) continue;
 
       let actualHiddenWord = '';
-      for (const loc of hiddenLocs) {
+      // Ensure actualHiddenWord is constructed in a predictable order (e.g., top-left to bottom-right or vice versa)
+      // For consistency, sort hidden locations by row, then by column, similar to how pathCells are generated.
+      const sortedHiddenLocs = [...hiddenLocs].sort((a, b) => {
+        if (a.r === b.r) return a.c - b.c;
+        return a.r - b.r;
+      });
+      for (const loc of sortedHiddenLocs) {
         actualHiddenWord += grid[loc.r][loc.c];
       }
       actualHiddenWord = actualHiddenWord.toLowerCase();
-
-      // Check if selected cells exactly match the hidden word's cells AND forms the word
-      const selectedSet = new Set(sortedSelectedCells.map(c => `${c.r},${c.c}`));
+      
       const hiddenSet = new Set(hiddenLocs.map(c => `${c.r},${c.c}`));
 
+      // Check if selected cells exactly match the hidden word's cells AND forms the word
+      // This is the most robust check, comparing the *set of cells* and the *word itself*.
       const isExactMatch = selectedSet.size === hiddenSet.size && 
                            [...selectedSet].every(cellStr => hiddenSet.has(cellStr));
 
@@ -333,6 +388,7 @@ export default function App() {
       setCurrentMessage("Not a hidden word, or already found. Try again!");
     }
   };
+
 
   /**
    * Helper to determine if a cell is currently part of the active selection.
@@ -415,7 +471,8 @@ export default function App() {
   return (
     <div
       className="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 text-white font-inter flex flex-col items-center justify-center p-4"
-      onMouseLeave={() => isMouseDown && handleMouseUp()} // End selection if mouse leaves game area
+      onMouseLeave={() => isMouseDown && handleSelectionEnd()} // End selection if mouse leaves game area
+      onTouchCancel={handleTouchEnd} // Handle touch leaving the screen
     >
       {/* Ensure font-family: inter is set in src/index.css or via Tailwind config */}
 
@@ -424,8 +481,8 @@ export default function App() {
       </h1>
       <p className="text-xl mb-6 text-gray-200 text-center px-4">{currentMessage}</p>
 
-      {/* Language Selector */}
-      <div className="mb-8 flex items-center space-x-4">
+      {/* Language Selector and How to Play Button */}
+      <div className="mb-8 flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
         <label htmlFor="language-select" className="text-lg font-semibold">Select Language:</label>
         <select
           id="language-select"
@@ -437,7 +494,6 @@ export default function App() {
             <option key={lang} value={lang}>{lang}</option>
           ))}
         </select>
-        {/* Instructions Button */}
         <button
           onClick={() => setShowInstructions(true)}
           className="px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-400 transition-all duration-300 ease-in-out transform hover:scale-105"
@@ -449,14 +505,19 @@ export default function App() {
       <div className="flex flex-col lg:flex-row items-start lg:items-stretch gap-8 w-full max-w-6xl">
         {/* Word Search Grid */}
         <div
-          className="flex-shrink-0 bg-purple-700 border-4 border-yellow-400 rounded-xl shadow-2xl overflow-hidden p-2 flex-grow-0"
-          onMouseUp={handleMouseUp}
+          className="flex-shrink-0 bg-purple-700 border-4 border-yellow-400 rounded-xl shadow-2xl overflow-hidden p-2 flex-grow-0
+                     mx-auto lg:mx-0" /* Center grid on small screens */
+          onMouseUp={handleSelectionEnd}
+          onTouchMove={handleTouchMove} /* Added touch move handler to container */
+          onTouchEnd={handleTouchEnd}   /* Added touch end handler to container */
         >
           {grid.map((row, rowIndex) => (
             <div key={rowIndex} className="flex">
               {row.map((char, colIndex) => (
                 <div
                   key={`${rowIndex}-${colIndex}`}
+                  data-row={rowIndex} /* Added for touch event lookup */
+                  data-col={colIndex} /* Added for touch event lookup */
                   className={`
                     w-8 h-8 md:w-10 md:h-10 lg:w-12 lg:h-12 flex items-center justify-center
                     text-lg md:text-xl lg:text-2xl font-bold cursor-pointer select-none
@@ -468,8 +529,8 @@ export default function App() {
                     rounded-sm
                   `}
                   onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
-                  onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
-                  // onMouseUp is handled at the parent div level for consistency
+                  onMouseEnter={() => handleCellSelect(rowIndex, colIndex)} /* Replaced handleMouseEnter */
+                  onTouchStart={(e) => handleTouchStart(e, rowIndex, colIndex)} /* Added touch start */
                 >
                   {char.toUpperCase()}
                 </div>
@@ -479,7 +540,7 @@ export default function App() {
         </div>
 
         {/* Words to Find List */}
-        <div className="flex-grow bg-purple-700 border-4 border-yellow-400 rounded-xl shadow-2xl p-6 lg:w-1/3">
+        <div className="flex-grow bg-purple-700 border-4 border-yellow-400 rounded-xl shadow-2xl p-6 lg:w-1/3 w-full">
           <h2 className="text-3xl font-semibold mb-4 text-yellow-300">Words to Find:</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-2 xl:grid-cols-3 gap-y-2 text-lg">
             {wordsToFind.map((word) => (
@@ -534,7 +595,7 @@ export default function App() {
               <ol className="list-decimal list-inside space-y-2">
                 <li>**Select Language:** Choose your preferred language from the dropdown.</li>
                 <li>**Find Words:** Look for the words listed on the right side of the screen within the letter grid.</li>
-                <li>**Highlight:** To select a word, click and hold your mouse on the first letter, then drag it in a straight line (horizontally, vertically, or diagonally) to the last letter of the word. Release the mouse button to confirm your selection.</li>
+                <li>**Highlight:** To select a word, click and hold your mouse (or tap and drag your finger) on the first letter, then drag it in a **straight line** (horizontally, vertically, or diagonally) to the last letter of the word. Release the mouse button or lift your finger to confirm your selection.</li>
                 <li>**Validation:** If your selection matches a hidden word, it will be marked as found, and the cells will turn green.</li>
                 <li>**Hints:** If you get stuck, use the "Get Hint" button. It will temporarily flash an unfound word on the grid. You have a limited number of hints!</li>
                 <li>**Completion:** The game is completed when all words in the list are found.</li>
