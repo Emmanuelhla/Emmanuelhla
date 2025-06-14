@@ -156,8 +156,7 @@ const generatePuzzle = (words) => {
 
 export default function App() {
   const [selectedLanguage, setSelectedLanguage] = useState('Hausa');
-  // FIX: Constructor Set requires 'new'
-  const [foundWords, setFoundWords] = useState(new Set()); 
+  const [foundWords, setFoundWords] = useState(new Set()); // FIX: Constructor Set requires 'new'
   const [grid, setGrid] = useState([]);
   const [wordsToFind, setWordsToFind] = useState([]);
   const [selectedCells, setSelectedCells] = useState([]);
@@ -252,13 +251,17 @@ export default function App() {
 
   // --- Touch Handlers ---
   const handleTouchStart = (e, r, c) => {
-    e.preventDefault(); // Prevent default browser scrolling/zooming
+    // ONLY prevent default if starting a new selection on the grid
+    // This allows taps on other elements to register naturally
+    if (flashingCells.length === 0) { // Only prevent if we intend to start a grid interaction
+      e.preventDefault(); 
+    }
     startSelection(r, c);
   };
 
   const handleTouchMove = (e) => {
     if (!isMouseDown) return;
-    e.preventDefault(); // Prevent default browser scrolling while dragging
+    e.preventDefault(); // ALWAYS prevent default browser scrolling while dragging on the grid
 
     const touch = e.touches[0];
     // Use the gridRef to calculate the position relative to the grid
@@ -281,7 +284,10 @@ export default function App() {
   };
 
   const handleTouchEnd = (e) => {
-    e.preventDefault(); // Prevent default touch behavior
+    // Only prevent default if we were in the middle of a grid selection
+    if (isMouseDown) { // Check if a selection was active
+        e.preventDefault(); 
+    }
     endSelection();
   };
 
@@ -479,13 +485,11 @@ export default function App() {
 
   return (
     <div
-      // Set min-h-screen to ensure it takes full viewport height and prevent vertical scroll unless content truly overflows
-      // Use overflow-hidden on the body (or a parent) if you want to aggressively prevent *all* scrolling.
-      className="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 text-white font-inter flex flex-col items-center justify-center p-4 overflow-hidden"
-      onMouseLeave={handleMouseLeaveGrid} // End selection if mouse leaves game area
-      // Global touch end/cancel handlers to clear selection if touch goes off grid
-      onTouchCancel={handleTouchEnd} 
-      onTouchEnd={handleTouchEnd}
+      // Set min-h-screen to ensure it takes full viewport height.
+      // Removed overflow-hidden from here to allow natural scrolling if content is too tall.
+      className="min-h-screen bg-gradient-to-br from-purple-800 to-indigo-900 text-white font-inter flex flex-col items-center p-4"
+      onMouseLeave={handleMouseLeaveGrid} // Mouse leave is fine here
+      // Removed onTouchCancel and onTouchEnd from the root div
     >
       <h1 className="text-5xl font-bold mb-6 text-yellow-300 drop-shadow-lg text-center">
         {selectedLanguage} Word Search
@@ -521,6 +525,8 @@ export default function App() {
                      mx-auto lg:mx-0 word-search-grid-container" /* Center grid on small screens, added touch-action class */
           onMouseUp={handleMouseUp}
           onTouchMove={handleTouchMove} /* Added touch move handler to grid container */
+          onTouchEnd={handleTouchEnd}   /* Moved touch end handler to grid container */
+          onTouchCancel={handleTouchEnd} /* Moved touch cancel handler to grid container */
         >
           {grid.map((row, rowIndex) => (
             <div key={rowIndex} className="flex">
@@ -542,7 +548,7 @@ export default function App() {
                   onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
                   onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
                   onTouchStart={(e) => handleTouchStart(e, rowIndex, colIndex)} /* Added touch start */
-                  // onTouchMove and onTouchEnd are handled by the parent grid container
+                  // onTouchMove and onTouchEnd are handled by the parent grid container (gridRef)
                 >
                   {char.toUpperCase()}
                 </div>
@@ -628,8 +634,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Custom CSS for flashing hint AND preventing touch scrolling (move to index.css for actual build) */}
-      {/* Moved `touch-action: none` class to the grid div */}
+      {/* Custom CSS for flashing hint (needs to be in index.css for actual build) */}
       <style>
         {`
           @keyframes pulse-hint {
